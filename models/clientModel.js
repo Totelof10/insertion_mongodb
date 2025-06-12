@@ -3,9 +3,17 @@ const { getDB } = require("../mongoDb")
 
 const COLLECTION = "clients"
 
-exports.getAllClients = async () => {
+exports.getAllClients = async (page, limit) => {
     const db = getDB()
-    return db.collection(COLLECTION).find().toArray()
+    const skip = (page - 1)* limit
+    const clients = await db.collection(COLLECTION)
+        .find({})
+        .skip(skip)
+        .limit(limit)
+        .toArray({})
+    
+    const total = await db.collection(COLLECTION).countDocuments()
+    return {clients, total}
 }
 
 exports.getClientById = async (id) => {
@@ -29,5 +37,21 @@ exports.deleteClient = async (id) => {
         throw new Error("Id Invalide")
     }
     const result = await db.collection(COLLECTION).deleteOne({ _id: new ObjectId(id) })
+    return result
+}
+
+exports.getTopClient = async () => {
+    const db = getDB()
+    const result = db.collection(COLLECTION).aggregate([{
+            $project:{
+                nom: 1,
+                email: 1,
+                historique_transactions: 1,
+                totalTransactions: {$size: "$historique_transactions"}
+            }
+        },
+        { $sort: { totalTransactions: -1}},
+        { $limit: 50 }
+    ]).toArray()
     return result
 }

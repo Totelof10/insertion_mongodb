@@ -1,34 +1,48 @@
-const { getAllClients, getClientById, addClient, deleteClient } = require("../models/clientModel")
+const { getAllClients, getClientById, addClient, deleteClient, getTopClient } = require("../models/clientModel")
 const redis = require("../redisClient")
 
 
-exports.listerClients = async (req, res)=>{
-    const CACHE_KEY = "clients"
-    try{
+exports.listerClients = async (req, res) => {
+    const page = parseInt(req.query.page) || 1
+    const limit = parseInt(req.query.limit) || 10
+    const CACHE_KEY = `clients:page:${page}:limit:${limit}` // clé unique par page
+
+    try {
+        // Vérifie si les données sont en cache
         const cacheData = await redis.get(CACHE_KEY)
-        if(cacheData){
-            console.log("Données récupérées depuis Redis")
+        if (cacheData) {
+            console.log("✅ Données récupérées depuis Redis")
             return res.json(JSON.parse(cacheData))
         }
 
-        console.log("Je n'arrive pas à accéder au cache")
+        console.log("❌ Données non présentes dans le cache Redis")
 
-        const clients =  await getAllClients()
+        // Récupère depuis MongoDB
+        const { clients, total } = await getAllClients(page, limit)
+        const totalPages = Math.ceil(total / limit)
 
-        await redis.setEx(CACHE_KEY, 60, JSON.stringify(clients))
+        const responseData = {
+            clients,
+            page,
+            totalPages
+        }
 
-        console.log("Données récupérées depuis mongodb et mises en cache")
+        // Mise en cache
+        await redis.setEx(CACHE_KEY, 60, JSON.stringify(responseData)) // TTL = 60s
+        console.log("📦 Données mises en cache Redis")
 
-        res.json(clients)
-    }catch(err){
-        res.status(500).json({message: err.message})
+        res.json(responseData)
+    } catch (err) {
+        console.error("Erreur lors de la récupération des clients:", err.message)
+        res.status(500).json({ message: err.message })
     }
 }
+
 
 exports.clientParId = async (req, res) =>{
     const id = req.params.id
     console.log("ID reçu dans req.params.id: ", id)
-    const CACHE_KEY = "clients:${id}"
+    const CACHE_KEY = `clients:${id}`
     try{
         const cacheData = await redis.get(CACHE_KEY)
         if(cacheData){
@@ -71,5 +85,28 @@ exports.supprimerClient = async(req, res) => {
     }catch(err){
         console.log("Erreur lors de la suppression du client:", err.message)
         res.status(400).json({ message: err.message })
+    }
+}
+
+exports.listerTop50 = async(req, res) => {
+    const CACHE_KEY = "clients"
+    try{
+        const cacheData = await redis.get(CACHE_KEY)
+        if(cacheData){
+            console.log("Données récupérées depuis Redis")
+            return res.json(JSON.parse(cacheData))
+        }
+
+        console.log("Je n'arrive pas à accéder au cache")
+
+        const clients =  await getTopClient()
+
+        await redis.setEx(CACHE_KEY, 60, JSON.stringify(clients))
+
+        console.log("Données récupérées depuis mongodb et mises en cache")
+
+        res.json(clients)
+    }catch(err){
+        res.status(500).json({message: err.message})
     }
 }
